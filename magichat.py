@@ -83,70 +83,139 @@ class MagicHat:
                 mask[[id0,id1],[id1,id0]] = False
         return mask
 
-def map_receivers(mask,max_draws=5):
-    """
-    map givers to receiver
 
-    Accepts square binary matrix
+def map_receivers(mask, max_draws=5, prevent_reciprocal=False):
+    """
+    Map givers to receivers.
+
+    Args:
+        mask: Square boolean matrix of acceptable pairings.
+        max_draws: Maximum attempts for standard assignment mode.
+        prevent_reciprocal: If True, prohibit reciprocal exchanges
+                            (A -> B and B -> A).
+
+    Returns:
+        Array where receiver_map[giver] = receiver.
     """
 
-    # Check if the matrix is square
-    if not (isinstance(mask,np.ndarray) and mask.dtype == np.bool_):
-        raise TypeError("Input must be a binary np.array") 
-    if (mask.shape[0] != mask.shape[1]) or len(mask.shape) != 2:
+    if not (isinstance(mask, np.ndarray) and mask.dtype == np.bool_):
+        raise TypeError("Input must be a binary np.array")
+
+    if len(mask.shape) != 2 or mask.shape[0] != mask.shape[1]:
         raise AttributeError("Input must be a square matrix")
 
-    # Pick for most-constrained name first...
-    pick_order = np.argsort(np.sum(mask,axis=0))
+    N = mask.shape[0]
+
+    if prevent_reciprocal:
+        receiver_map = np.full(N, -1, dtype=int)
+        available = set(range(N))
+
+        def assign(unassigned, available):
+            if not unassigned:
+                return True
+
+            # Select the most constrained remaining giver
+            candidates = {}
+
+            for giver in unassigned:
+                valid = [
+                    r for r in available
+                    if mask[giver, r]
+                    and not (
+                        receiver_map[r] == giver
+                    )
+                ]
+                candidates[giver] = valid
+
+            giver = min(candidates, key=lambda g: len(candidates[g]))
+            receivers = candidates[giver]
+
+            if not receivers:
+                return False
+
+            # Randomize receiver selection
+            np.random.shuffle(receivers)
+
+            for receiver in receivers:
+                receiver_map[giver] = receiver
+
+                if assign(
+                    unassigned - {giver},
+                    available - {receiver}
+                ):
+                    return True
+
+                receiver_map[giver] = -1
+
+            return False
+
+        if not assign(set(range(N)), available):
+            raise Exception(
+                "Could not identify a valid mapping. "
+                "Consider fewer restrictions or more participants."
+            )
+
+        return receiver_map
+
+    # Original assignment algorithm
+    pick_order = np.argsort(np.sum(mask, axis=0))
 
     for attempt in range(max_draws):
-        # Attempt to pair givers and receivers.
-        #
-        # For each giver, attempt to assign a receiver. It is possible that, by the time we reach the last giver, the only remaining receiver is in one of the giver's exclusion groups. If that happens, re-draw and try again.
-
-
-        # Generate a matrix of uniformly distributed random values in the range [0, 1)
         wts = np.random.uniform(low=0.0, high=1.0, size=mask.shape)
-        draw = wts*mask
+        draw = wts * mask
 
-        receiver_map = np.zeros(len(pick_order),dtype=int)
+        receiver_map = np.zeros(N, dtype=int)
         success = True
+
         for giver in pick_order:
-            # Get the index of the maximum value
-            receiver = np.argmax(draw[giver,:])
-            if draw[giver,receiver] == 0.:
-                # No one left for this name to gift
+            receiver = np.argmax(draw[giver, :])
+
+            if draw[giver, receiver] == 0.:
                 success = False
-            # Assign receiver to giver
+                break
+
             receiver_map[giver] = receiver
-            # Remove receiver from pool
-            draw[:,receiver] = 0.0
+            draw[:, receiver] = 0.
 
         if success:
             break
-        print("draw %d failed..."%attempt)
+
+        print("draw %d failed..." % attempt)
 
     if not success:
-        raise Exception("Could not identify giver-receiver mapping. Consider fewer groups.")
+        raise Exception(
+            "Could not identify giver-receiver mapping. "
+            "Consider fewer groups."
+        )
 
-    # Check 1:1 mapping. Everyone should be a unique receiver
-    if not np.array_equal(np.sort(receiver_map),np.arange(0,len(receiver_map))):
+    if not np.array_equal(np.sort(receiver_map), np.arange(N)):
         raise Exception("Algorithmic error. Givers and receivers not uniquely paired!")
 
     return receiver_map
 
-def draw_and_print(hat : MagicHat):
-    # Get  a binary matrix of potential giver-receiver pairs
-    mask = hat.mask
-    # Draw names
-    map = map_receivers(mask)
 
-    # Print result
+
+def draw_and_print(hat: MagicHat, prevent_reciprocal=False):
+
+    mask = hat.mask
+
+    receiver_map = map_receivers(
+        mask,
+        prevent_reciprocal=prevent_reciprocal
+    )
+
     NameEnum = hat.NameEnum
     max_length = len(max(hat.names, key=len))
-    print("\n Assignments:")
-    for giver in range(len(map)):
-        receiver = map[giver]
-        print("   %s is giving to %s"%(NameEnum(giver).name.rjust(max_length),NameEnum(receiver).name))
 
-    return map
+    print("\n Assignments:")
+
+    for giver in range(len(receiver_map)):
+        receiver = receiver_map[giver]
+
+        print("   %s is giving to %s" % (
+            NameEnum(giver).name.rjust(max_length),
+            NameEnum(receiver).name
+        ))
+
+    return receiver_map
+
