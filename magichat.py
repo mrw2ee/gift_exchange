@@ -19,6 +19,7 @@ class MagicHat:
         # Initialize an empty list to store names
         self.__names = []
         self.__groups=[]
+        self.__exclusions = []
         
 
     def add_name(self, name : str)->None:
@@ -42,6 +43,48 @@ class MagicHat:
         
         # Add group to the restriction list
         self.__groups.append(group)
+        
+    
+    def add_exclusion(self, pairings) -> None:
+        """
+        Add directional pairing exclusions.
+
+        Accepts either:
+            ("Alice", "Bob")
+        or:
+            [("Alice", "Bob"), ("Charlie", "David")]
+
+        Each exclusion prevents giver -> receiver only.
+        """
+
+        # Normalize a single tuple to a list of tuples
+        if isinstance(pairings, tuple):
+            pairings = [pairings]
+
+        if not isinstance(pairings, list):
+            raise TypeError("Input must be a tuple or list of tuples.")
+
+        for pairing in pairings:
+            if not isinstance(pairing, tuple):
+                raise TypeError("Each pairing must be a tuple.")
+
+            if len(pairing) != 2:
+                raise ValueError("Each tuple must contain exactly two names.")
+
+            for name in pairing:
+                if not isinstance(name, str):
+                    raise TypeError("Pairing names must be strings.")
+
+            giver, receiver = pairing
+
+            # Ensure both names are in the name list
+            for name in pairing:
+                if name not in self.__names:
+                    self.add_name(name)
+
+            self.__exclusions.append((giver, receiver))
+
+
 
     def __str__(self):
         # Return a string representation of the list of names
@@ -49,6 +92,11 @@ class MagicHat:
         if len(self.__groups) >0:
             for g in self.__groups:
                 s = s + "\n  Group: "+ ", ".join(g)
+        
+        if len(self.__exclusions) >0:    
+            for giver, receiver in self.__exclusions:
+                s += f"\n  Exclusion: {giver} -> {receiver}"
+            
         return s
 
     @property
@@ -58,6 +106,10 @@ class MagicHat:
     @property
     def groups(self)->List[List[str]]:
         return self.__groups
+    
+    @property
+    def exclusions(self) -> List[tuple]:
+        return self.__exclusions
     
     @property
     def NameEnum(self)->Enum:
@@ -74,13 +126,22 @@ class MagicHat:
         NameEnum = self.NameEnum
         N = len(NameEnum)
         mask = np.ones((N,N), dtype=bool)
+        
         # no self-gifting
         mask *=~np.eye(N, dtype=bool)
+        
+        # Group restrictions: neither direction allowed
         for g in self.groups:
             for pair in list(itertools.combinations(g, 2)):
                 id0 = NameEnum[pair[0]].value
                 id1 = NameEnum[pair[1]].value
                 mask[[id0,id1],[id1,id0]] = False
+        
+        # Individual exclusions: directional
+        for giver, receiver in self.exclusions:
+            id0 = NameEnum[giver].value
+            id1 = NameEnum[receiver].value
+            mask[id0, id1] = False
         return mask
 
 
